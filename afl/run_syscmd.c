@@ -14,6 +14,7 @@ static struct option long_options[] = {
 	{"paramfile", required_argument, 0, 'p'},
 	{"cmdfuzz", no_argument, 0, 'e'},
 	{"help", no_argument, 0, 'h'},
+	{0, 0, 0, 0}
 };
 
 
@@ -22,14 +23,17 @@ static char ** change_buf_to_argv(char *buf, int *m_argc)
   char* ptr = buf;
  static char* ret[1024];
   int   rc  = 0;
+  int   i   =0;
 
   while (*ptr) {
 
     ret[rc] = ptr;
-    if (ret[rc][0] == 0x0d) ret[rc]++;
+    if (ret[rc][0] == 0x02 && !ret[rc][1]) ret[rc]++;
+    while(ret[rc][0] == 0x20) ret[rc]++;
     rc++;
 
-    while (*ptr) ptr++;
+    while (*ptr && *ptr!=0x0A) ptr++;
+    *ptr='\0';
     ptr++;
 
   }
@@ -77,7 +81,8 @@ char *fuzz_virtio_blk_file(char *paramfile, char *filename)
 	int fd_p;
 	struct stat st_p;
 	char *buf_p;
-	char add_param[] = "-s 20,virtio-blk,";
+	char add_param[] = "-s\n20,virtio-blk,";
+	int alloc_len=0;
 	
 	if (paramfile) {
 		fd_p = open(paramfile, O_RDONLY);
@@ -89,7 +94,8 @@ char *fuzz_virtio_blk_file(char *paramfile, char *filename)
 	fstat(fd_p,&st_p);
 
 	if (st_p.st_size) {
-		buf_p = malloc(st_p.st_size + strlen(add_param) + strlen(filename));
+		alloc_len = st_p.st_size + strlen(add_param) + strlen(filename);
+		buf_p = malloc(alloc_len);
 		if (!buf_p)
 			goto err;
 		if (read(fd_p, buf_p, st_p.st_size) != st_p.st_size) {
@@ -100,7 +106,7 @@ char *fuzz_virtio_blk_file(char *paramfile, char *filename)
 	} else
 		goto err;
 
-	sprintf(buf_p + st_p.st_size ,"%s%s\n",add_param,filename);
+	sprintf(buf_p + st_p.st_size ,"%s%s",add_param,filename);
 	close(fd_p);
 	return buf_p;
 
@@ -112,7 +118,7 @@ err:
 }
 
 
-static char optstr[] = "f:c:p:he";
+static char optstr[] = "f:c:p:eh";
 int main(int argc, char *argv[])
 {
 	int option_idx = 0;
@@ -138,6 +144,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'e':
 			cmdline_fuzz = 1;
+			break;
                 case 'h':
 			printf("run with\n"
 					"'-c <system cmd>\n"
@@ -163,8 +170,9 @@ int main(int argc, char *argv[])
 	if (!buf)
 		goto err;
 
-	printf("cmd: %s\n", buf);
 	m_argv = change_buf_to_argv(buf, &m_argc);
+	for (int i=0;i<m_argc;i++)
+		printf("m_argv[%d]=%s\n", i, m_argv[i]);
 	if (m_argv && m_argc) {
 		if (execvp(syscmd, m_argv) < 0)
 			printf("run failed %d\n",errno);
